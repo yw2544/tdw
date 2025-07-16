@@ -16,7 +16,7 @@ from datetime import datetime
 from scene_builder import (
     create_room_base, add_target_and_chairs, add_colored_cubes,
     select_agent_and_colored_positions_new, get_grid_position, ObjectManager,
-    get_center_5x5_positions
+    get_center_5x5_positions, select_occluder_position_in_agent_view
 )
 from camera_manager import capture_topdown_view, capture_agent_view, capture_colored_grid_view
 from metrics_calculator import compute_metrics_for_view
@@ -140,10 +140,7 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
             print("No colored grids to add")
         
         # Capture views - Phase 1: Before occlusion
-        print("\n📸 Phase 1: Capturing views before occlusion...")
-        
-        # Capture topdown view
-        capture_topdown_view(c, out_dir)
+        print("\n�� Phase 1: Capturing agent view before occlusion...")
         
         # Capture agent view (before occlusion)
         print("Capturing agent view (before occlusion)...")
@@ -179,19 +176,12 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
         # Phase 2: Add occlusion object
         print("\n🚧 Phase 2: Adding occlusion object...")
         
-        # Find available positions in 5x5 center area (excluding occupied positions)
-        center_5x5_positions = get_center_5x5_positions()
-        occupied_positions = set()
-        occupied_positions.add(positions["target_position"])
-        for pos in positions["chair_positions"]:
-            occupied_positions.add(pos)
+        # 使用新函数选择在agent视线范围内的6x6格子位置
+        occlusion_position = select_occluder_position_in_agent_view(agent_info, all_objects_data)
         
-        available_positions = [pos for pos in center_5x5_positions if pos not in occupied_positions]
-        
-        if available_positions:
+        if occlusion_position:
             # Add one occlusion object
             selected_occlusion = random.choice(occlusion_objects)
-            occlusion_position = random.choice(available_positions)
             occlusion_world_pos = get_grid_position(occlusion_position[0], occlusion_position[1])
             
             occlusion_id = c.get_unique_id()
@@ -208,7 +198,7 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
             
             c.communicate([occlusion_command])
             
-            print(f"🚧 Added occlusion object: {selected_occlusion} at grid{occlusion_position}")
+            print(f"🚧 Added occlusion object: {selected_occlusion} at grid{occlusion_position} (agent view, 6x6 area)")
             
             # Add to object data
             occlusion_obj_data = {
@@ -228,10 +218,13 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
                 occlusion_rotation, 1.0
             )
         else:
-            print("⚠️ No available positions for occlusion object")
+            print("⚠️ No available positions for occlusion object in agent view (6x6 area)")
         
-        # Phase 3: Capture views after occlusion
-        print("\n📸 Phase 3: Capturing views after occlusion...")
+        # Phase 3: Capture topdown and after occlusion views
+        print("\n📸 Phase 3: Capturing topdown and after occlusion views...")
+        
+        # Capture topdown view (after occlusion object is added)
+        capture_topdown_view(c, out_dir)
         
         # Capture agent view (after occlusion)
         print("Capturing agent view (after occlusion)...")

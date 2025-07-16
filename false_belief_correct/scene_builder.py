@@ -597,6 +597,67 @@ def select_agent_and_colored_positions_new(all_objects_data, object_manager: "Ob
     
     return agent_info, colored_positions
 
+def select_occluder_position_in_agent_view(agent_info, all_objects_data):
+    """
+    选择在agent视线范围内的6x6格子位置用于放置occluder
+    
+    Args:
+        agent_info: agent信息，包含位置、朝向等
+        all_objects_data: 现有物体数据列表
+        
+    Returns:
+        tuple: (grid_x, grid_z) 或 None 如果没有找到合适位置
+    """
+    # 获取中间6x6格子位置
+    center_6x6_positions = get_center_6x6_positions()
+    
+    # 排除已占用的位置
+    occupied_positions = set()
+    for obj_data in all_objects_data:
+        occupied_positions.add(tuple(obj_data["grid_position"]))
+    occupied_positions.add(agent_info["grid_position"])
+    
+    # 找到可用的位置
+    available_positions = [pos for pos in center_6x6_positions if pos not in occupied_positions]
+    
+    # 过滤出在agent视野内的位置
+    valid_occluder_positions = []
+    for pos in available_positions:
+        pos_world = get_grid_position(pos[0], pos[1])
+        
+        # 检查是否在agent视野内（使用与彩色格子相同的逻辑）
+        agent_pos = agent_info["position"]
+        look_at = agent_info["look_at"]
+        
+        # 计算agent朝向
+        agent_dx = look_at["x"] - agent_pos["x"]
+        agent_dz = look_at["z"] - agent_pos["z"]
+        agent_angle = math.atan2(agent_dz, agent_dx)
+        
+        # 计算到测试位置的角度
+        test_dx = pos_world["x"] - agent_pos["x"]
+        test_dz = pos_world["z"] - agent_pos["z"]
+        test_angle = math.atan2(test_dz, test_dx)
+        
+        # 计算角度差
+        angle_diff = abs(test_angle - agent_angle)
+        if angle_diff > math.pi:
+            angle_diff = 2 * math.pi - angle_diff
+        
+        # 90度视野范围内
+        if angle_diff <= math.radians(45):  # 45度是90度视野的一半
+            valid_occluder_positions.append(pos)
+    
+    if valid_occluder_positions:
+        print(f"  Found {len(valid_occluder_positions)} valid occluder positions in agent view (6x6 grid)")
+        # 随机选择一个位置
+        selected_position = random.choice(valid_occluder_positions)
+        print(f"  Selected occluder position: grid{selected_position}")
+        return selected_position
+    else:
+        print("  ⚠️ No valid occluder positions found in agent view (6x6 grid)")
+        return None
+
 def extract_coordinate_scalar(point, axis):
     """
     Extract coordinate value from a point object
@@ -764,4 +825,65 @@ def can_camera_see_object(c: Controller, object_manager: "ObjectManager", camera
     else:
         result["object_direction"] = "left"
     
-    return result 
+    return result
+
+def select_occluder_position_in_agent_view(agent_info, all_objects_data):
+    """
+    选择在agent视线范围内的6x6格子位置用于放置occluder
+    
+    Args:
+        agent_info: agent信息，包含位置、朝向等
+        all_objects_data: 现有物体数据列表
+        
+    Returns:
+        tuple: (grid_x, grid_z) 或 None 如果没有找到合适位置
+    """
+    # 获取中间6x6格子位置
+    center_6x6_positions = get_center_6x6_positions()
+    
+    # 排除已占用的位置
+    occupied_positions = set()
+    for obj_data in all_objects_data:
+        occupied_positions.add(tuple(obj_data["grid_position"]))
+    occupied_positions.add(agent_info["grid_position"])
+    
+    # 找到可用的位置
+    available_positions = [pos for pos in center_6x6_positions if pos not in occupied_positions]
+    
+    # 过滤出在agent视野内的位置
+    valid_occluder_positions = []
+    for pos in available_positions:
+        pos_world = get_grid_position(pos[0], pos[1])
+        
+        # 检查是否在agent视野内（使用与彩色格子相同的逻辑）
+        agent_pos = agent_info["position"]
+        look_at = agent_info["look_at"]
+        
+        # 计算agent朝向
+        agent_dx = look_at["x"] - agent_pos["x"]
+        agent_dz = look_at["z"] - agent_pos["z"]
+        agent_angle = math.atan2(agent_dz, agent_dx)
+        
+        # 计算到测试位置的角度
+        test_dx = pos_world["x"] - agent_pos["x"]
+        test_dz = pos_world["z"] - agent_pos["z"]
+        test_angle = math.atan2(test_dz, test_dx)
+        
+        # 计算角度差
+        angle_diff = abs(test_angle - agent_angle)
+        if angle_diff > math.pi:
+            angle_diff = 2 * math.pi - angle_diff
+        
+        # 90度视野范围内
+        if angle_diff <= math.radians(45):  # 45度是90度视野的一半
+            valid_occluder_positions.append(pos)
+    
+    if valid_occluder_positions:
+        print(f"  Found {len(valid_occluder_positions)} valid occluder positions in agent view (6x6 grid)")
+        # 随机选择一个位置
+        selected_position = random.choice(valid_occluder_positions)
+        print(f"  Selected occluder position: grid{selected_position}")
+        return selected_position
+    else:
+        print("  ⚠️ No valid occluder positions found in agent view (6x6 grid)")
+        return None
