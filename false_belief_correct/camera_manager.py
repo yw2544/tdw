@@ -7,7 +7,6 @@ from tdw.controller import Controller
 from tdw.add_ons.third_person_camera import ThirdPersonCamera
 from tdw.add_ons.image_capture import ImageCapture
 from pathlib import Path
-from scene_builder import get_grid_position
 
 def capture_topdown_view(c: Controller, output_dir: Path):
     """
@@ -83,15 +82,14 @@ def capture_agent_view(c: Controller, agent_world_pos: dict, target_world_pos: d
         print("✗ Failed to capture agent view")
         return None
 
-def capture_colored_grid_view(c: Controller, grid_position: tuple, target_world_pos: dict, 
-                             color_name: str, view_index: int, output_dir: Path):
+def capture_colored_grid_view(c: Controller, grid_info: dict, view_index: int, output_dir: Path):
     """
-    Capture view from a colored grid position looking at target
+    Capture view from a colored grid position
     Returns: PIL Image
     """
-    grid_x, grid_z = grid_position
-    cam_pos = get_grid_position(grid_x, grid_z)
-    cam_pos["y"] = 1.5  # 1.5 meters high
+    cam_pos = grid_info["camera_position"]
+    look_at = grid_info["look_at"]
+    color_name = grid_info["color"]
     
     cam_id = f"colored_cam_{view_index}"
     filename = f"colored_view_{view_index}_{color_name}.png"
@@ -104,7 +102,7 @@ def capture_colored_grid_view(c: Controller, grid_position: tuple, target_world_
     colored_camera = ThirdPersonCamera(
         avatar_id=cam_id,
         position=cam_pos,
-        look_at=target_world_pos,
+        look_at=look_at,
         field_of_view=90
     )
     
@@ -232,4 +230,4 @@ def render_scene_for_metrics(c: Controller, camera_config: dict, output_dir: Pat
         seg_array = np.array(seg_img)
         return color_img, seg_array
     else:
-        raise RuntimeError("Failed to get segmentation image") 
+        raise RuntimeError("Failed to get segmentation image")

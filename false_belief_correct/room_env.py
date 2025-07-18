@@ -11,12 +11,14 @@ from pathlib import Path
 import random
 import json
 from datetime import datetime
-
+from tdw.add_ons.third_person_camera import ThirdPersonCamera
+from tdw.add_ons.image_capture import ImageCapture
 # Import the new modules
 from scene_builder import (
     create_room_base, add_target_and_chairs, add_colored_cubes,
-    select_agent_and_colored_positions_new, get_grid_position, ObjectManager,
-    get_center_5x5_positions, select_occluder_position_in_agent_view
+    select_colored_positions, get_grid_position, ObjectManager,
+    get_center_5x5_positions, add_occlusion_object,
+    can_camera_see_object,find_agent_view_position
 )
 from camera_manager import capture_topdown_view, capture_agent_view, capture_colored_grid_view
 from metrics_calculator import compute_metrics_for_view
@@ -31,28 +33,20 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
     """
     # Object pool definitions - updated according to requirements
     target_objects = [
-        'blue_club_chair',
+        # 'blue_club_chair',
         'white_club_chair', 
-        'yellow_side_chair',
-        'red_side_chair', 
-        'green_side_chair'
-    ]
-    
-    chair_objects = [
-        'blue_club_chair',
-        'white_club_chair', 
-        'yellow_side_chair',
-        'red_side_chair', 
-        'green_side_chair'
+        # 'yellow_side_chair',
+        # 'red_side_chair', 
+        # 'green_side_chair'
     ]
     
     occlusion_objects = [
         "fridge_large", 
-        "dining_room_table", 
-        "cabinet_24_wood_beach_honey", 
-        "cabinet_36_white_wood",
-        "5ft_wood_shelving", 
-        "metal_lab_shelf"
+        # "dining_room_table", 
+        # "cabinet_24_wood_beach_honey", 
+        # "cabinet_36_white_wood",
+        # "5ft_wood_shelving", 
+        # "metal_lab_shelf"
     ]
     
     # Define 5 colors (red, yellow, blue, green, purple)
@@ -61,7 +55,7 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
         {"name": "yellow", "rgb": {"r": 0.9, "g": 0.9, "b": 0.1, "a": 0.8}},
         {"name": "blue", "rgb": {"r": 0.1, "g": 0.3, "b": 0.8, "a": 0.8}},
         {"name": "green", "rgb": {"r": 0.1, "g": 0.7, "b": 0.1, "a": 0.8}},
-        {"name": "purple", "rgb": {"r": 0.6, "g": 0.1, "b": 0.8, "a": 0.8}},
+        # {"name": "purple", "rgb": {"r": 0.6, "g": 0.1, "b": 0.8, "a": 0.8}},
     ]
     
     # Output directory
@@ -89,7 +83,7 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
         # Add target and chair objects (1 target + 2 chairs)
         print("Adding target and chair objects...")
         obj_commands, target_obj_data, all_objects_data, positions = add_target_and_chairs(
-            c, target_objects, chair_objects
+            c, target_objects
         )
         
         # Add objects to object manager
@@ -99,19 +93,40 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
                 obj_data["model"], 
                 obj_data["position"], 
                 obj_data["rotation"], 
+                obj_data['type'],
                 obj_data["scale"]
             )
         
         # Send scene creation commands first
         print("\nSending scene creation commands...")
         all_commands = room_commands + obj_commands
-        resp = c.communicate(all_commands)
+        agent_info = find_agent_view_position(c, object_manager, all_objects_data)
+        agent_camera = ThirdPersonCamera(
+            avatar_id="agent_cam",
+            position=agent_info["position"],
+            look_at=agent_info["look_at"],
+            field_of_view=90
+        )
+        
+        agent_capture = ImageCapture(
+            avatar_ids=["agent_cam"], 
+            path=str(out_dir),
+            png=True
+        )
+        
+        c.add_ons.extend([agent_camera, agent_capture])
+        c.communicate(all_commands)
         print("Initial scene creation completed!")
+         # Add occlusion object before colored cubes
+        occlusion_obj_data = add_occlusion_object(c, object_manager, all_objects_data,occlusion_objects)
+        
+        if occlusion_obj_data:
+            all_objects_data.append(occlusion_obj_data)
         
         # Find agent position that can see all objects
         print("Finding agent position that can see all objects...")
-        agent_info, colored_positions = select_agent_and_colored_positions_new(
-            all_objects_data, object_manager, c, num_colored_grids
+        colored_grid_infos, question_data = select_colored_positions(
+            all_objects_data, object_manager, c,agent_info,  num_colored_grids
         )
         
         # Print configuration details
@@ -124,101 +139,39 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
         print(f"🪑 Chair positions: {[f'grid{pos}' for pos in positions['chair_positions']]}")
         print(f"🤖 Agent position: grid{agent_info['grid_position']} = world({agent_world_pos['x']}, {agent_world_pos['z']}, {agent_world_pos['y']})")
         print(f"👁️ Agent looking {agent_info['direction']} (can see all objects)")
-        print(f"🎨 Colored grid positions: {len(colored_positions)} positions")
+        print(f"🎨 Colored grid positions: {len(colored_grid_infos)} positions")
         
-        for i, pos in enumerate(colored_positions):
-            world_pos = get_grid_position(pos[0], pos[1])
-            color_name = colors[i % len(colors)]["name"]
-            print(f"  Grid{i+1}: {pos} = world({world_pos['x']}, {world_pos['z']}) - {color_name}")
+        print(f"\n❓ Generated question: {question_data['prompt']}")
+        print(f"✅ Correct answers: {question_data['correct_answers']}")
         
+        for i, grid_info in enumerate(colored_grid_infos):
+            pos = grid_info["grid_position"]
+            color_name = grid_info["color"]
+            is_correct = "✓" if grid_info["is_correct_answer"] else "✗"
+            print(f"  Grid{i+1}: {pos} - {color_name} {is_correct}")
+        
+       
         # Add colored cubes
-        if colored_positions:
+        if colored_grid_infos:
             print("Adding colored cube grids...")
+            colored_positions = [info["grid_position"] for info in colored_grid_infos]
             cube_commands = add_colored_cubes(c, colored_positions, colors)
             c.communicate(cube_commands)
         else:
             print("No colored grids to add")
         
         # Capture views - Phase 1: Before occlusion
-        print("\n�� Phase 1: Capturing agent view before occlusion...")
-        
-        # Capture agent view (before occlusion)
-        print("Capturing agent view (before occlusion)...")
+        print("\n📸 Phase 1: Capturing agent view before occlusion...")
+
         # Clear previous cameras
-        c.add_ons.clear()
-        
-        from tdw.add_ons.third_person_camera import ThirdPersonCamera
-        from tdw.add_ons.image_capture import ImageCapture
-        
-        agent_camera = ThirdPersonCamera(
-            avatar_id="agent_cam",
-            position=agent_world_pos,
-            look_at=agent_info["look_at"],
-            field_of_view=90
-        )
-        
-        agent_capture = ImageCapture(
-            avatar_ids=["agent_cam"], 
-            path=str(out_dir),
-            png=True
-        )
-        
-        c.add_ons.extend([agent_camera, agent_capture])
-        c.communicate([])
-        
+        # c.add_ons.clear()
+
         # Save agent view (before occlusion)
-        images = agent_capture.get_pil_images()
-        if "agent_cam" in images and "_img" in images["agent_cam"]:
-            img = images["agent_cam"]["_img"]
-            img.save(out_dir / "agent_view_before_occlusion.png")
-            print("✓ Agent view (before occlusion) saved: agent_view_before_occlusion.png")
-        
-        # Phase 2: Add occlusion object
-        print("\n🚧 Phase 2: Adding occlusion object...")
-        
-        # 使用新函数选择在agent视线范围内的6x6格子位置
-        occlusion_position = select_occluder_position_in_agent_view(agent_info, all_objects_data)
-        
-        if occlusion_position:
-            # Add one occlusion object
-            selected_occlusion = random.choice(occlusion_objects)
-            occlusion_world_pos = get_grid_position(occlusion_position[0], occlusion_position[1])
-            
-            occlusion_id = c.get_unique_id()
-            from scene_builder import get_cardinal_directions
-            cardinal_directions = get_cardinal_directions()
-            occlusion_rotation = random.choice(cardinal_directions)
-            
-            occlusion_command = c.get_add_object(
-                model_name=selected_occlusion,
-                position=occlusion_world_pos,
-                rotation=occlusion_rotation,
-                object_id=occlusion_id
-            )
-            
-            c.communicate([occlusion_command])
-            
-            print(f"🚧 Added occlusion object: {selected_occlusion} at grid{occlusion_position} (agent view, 6x6 area)")
-            
-            # Add to object data
-            occlusion_obj_data = {
-                "id": occlusion_id,
-                "model": selected_occlusion,
-                "position": occlusion_world_pos,
-                "rotation": occlusion_rotation,
-                "scale": 1.0,
-                "grid_position": occlusion_position,
-                "type": "occlusion"
-            }
-            all_objects_data.append(occlusion_obj_data)
-            
-            # Add to object manager
-            object_manager.add_object(
-                occlusion_id, selected_occlusion, occlusion_world_pos, 
-                occlusion_rotation, 1.0
-            )
-        else:
-            print("⚠️ No available positions for occlusion object in agent view (6x6 area)")
+        # images = agent_capture.get_pil_images()
+        # if "agent_cam" in images and "_img" in images["agent_cam"]:
+        #     img = images["agent_cam"]["_img"]
+        #     img.save(out_dir / "agent_view_before_occlusion.png")
+        #     print("✓ Agent view (before occlusion) saved: agent_view_before_occlusion.png")
         
         # Phase 3: Capture topdown and after occlusion views
         print("\n📸 Phase 3: Capturing topdown and after occlusion views...")
@@ -231,52 +184,12 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
         # Use the same camera setup
         c.communicate([])
         
-        # Save agent view (after occlusion)
-        images = agent_capture.get_pil_images()
-        if "agent_cam" in images and "_img" in images["agent_cam"]:
-            img = images["agent_cam"]["_img"]
-            img.save(out_dir / "agent_view_after_occlusion.png")
-            print("✓ Agent view (after occlusion) saved: agent_view_after_occlusion.png")
-        
-        # Capture colored grid views and compute metrics
-        view_metrics = {}
-        
-        if colored_positions:
-            print("\n📸 Capturing colored grid views and computing metrics...")
-        else:
-            print("\n📸 No colored grid views to capture")
-        
-        for i, (grid_x, grid_z) in enumerate(colored_positions):
-            cam_pos = get_grid_position(grid_x, grid_z)
-            cam_pos["y"] = 1.5  # 1.5 meters high
-            
-            color_name = colors[i % len(colors)]["name"]
-            view_name = f"view_{i+1}_{color_name}"
-            
-            print(f"  Capturing {color_name} grid view...")
-            
-            # Capture view image
-            capture_colored_grid_view(c, (grid_x, grid_z), target_world_pos, color_name, i+1, out_dir)
-            
-            # Compute metrics for this view
-            metrics = compute_metrics_for_view(
-                c, cam_pos, target_obj_data, all_objects_data, out_dir, view_name
-            )
-            
-            # Collect view data
-            view_info = {
-                "view_name": view_name,
-                "camera_position": cam_pos,
-                "grid_position": [grid_x, grid_z],
-                "color": color_name,
-                "field_of_view": 90,
-                "metrics": metrics
-            }
-            
-            view_metrics[view_name] = view_info
+        view_metrics= {}
+
         
         # All metrics computed within same TDW session, no need to rebuild scene
         print(f"\n✅ All metrics computed successfully!")
+       
         
         print(f"\n🎉 Room environment creation completed!")
         print(f"📊 Environment statistics:")
@@ -361,7 +274,7 @@ def create_room_environment_correct(num_colored_grids=5, output_dir="./room_env_
             "agent_position": agent_info["grid_position"],
             "colored_positions": colored_positions,
             "view_metrics": view_metrics,
-            "json_output": str(json_path)
+            "json_output": str(json_path),
         }
         
     except Exception as e:
@@ -397,7 +310,7 @@ def test_room_environment():
 
 if __name__ == "__main__":
     # Set random seed for reproducibility (optional)
-    # random.seed(42)
+    # random.seed(51)
     
     # Run room environment test
     test_room_environment()

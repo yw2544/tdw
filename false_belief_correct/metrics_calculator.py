@@ -42,7 +42,7 @@ def get_object_bounds(model_name: str, rotation: dict = {"x": 0, "y": 0, "z": 0}
         print(f"Failed to get object bounds for {model_name}: {e}")
         return (1.0, 1.0, 1.0)  # Default values
 
-def find_target_color_in_segmentation(seg_array: np.ndarray) -> np.ndarray | None:
+def find_target_color_in_segmentation(seg_array: np.ndarray):
     """Find target object color from segmentation image"""
     if len(seg_array.shape) != 3:
         return None
@@ -214,7 +214,7 @@ def compute_visibility_ratio(obj_data: dict, camera_config: dict, fov_deg=90, sa
     else:
         return 0.0
 
-def compute_metrics_for_view(c: Controller, camera_position: dict, target_obj_data: dict, 
+def compute_metrics_for_view(c: Controller, camera_position: dict, camera_look_at: dict,  
                            all_objects_data: list, output_dir: Path, view_name: str):
     """
     Compute both occlusion and visibility ratios for all objects from a specific camera view
@@ -222,7 +222,7 @@ def compute_metrics_for_view(c: Controller, camera_position: dict, target_obj_da
     """
     camera_config = {
         "position": camera_position,
-        "look_at": target_obj_data["position"],
+        "look_at": camera_look_at,
         "field_of_view": 90
     }
     
@@ -256,4 +256,4 @@ def compute_metrics_for_view(c: Controller, camera_position: dict, target_obj_da
         
         metrics[model_name] = obj_metrics
     
-    return metrics 
+    return metrics
