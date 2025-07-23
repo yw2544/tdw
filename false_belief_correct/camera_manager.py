@@ -27,7 +27,7 @@ def capture_topdown_view(c: Controller, output_dir: Path):
     
     top_capture = ImageCapture(
         avatar_ids=["top_cam"], 
-        path=str(output_dir),
+        path=str(output_dir.parent),
         png=True
     )
     
@@ -38,7 +38,7 @@ def capture_topdown_view(c: Controller, output_dir: Path):
     images = top_capture.get_pil_images()
     if "top_cam" in images and "_img" in images["top_cam"]:
         img = images["top_cam"]["_img"]
-        img.save(output_dir / "room_topdown.png")
+        img.save(output_dir)
         print("✓ Topdown view saved: room_topdown.png")
         return img
     else:
